@@ -1,0 +1,26 @@
+-- Table for Wi-Fi credentials
+CREATE TABLE wifi (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    ssid VARCHAR(50),
+    password VARCHAR(50)
+);
+
+-- Table for registered users
+CREATE TABLE registered_user (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    uid VARCHAR(50) UNIQUE,
+    name VARCHAR(50),
+    email VARCHAR(100)
+);
+
+-- Table for attendance records with unique constraint per user per day
+CREATE TABLE attendance_record (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES registered_user(id),
+    CONSTRAINT unique_attendance_per_day UNIQUE (user_id, DATE(timestamp)) -- Ensures one attendance per user per day
+);
+
+-- Index on the timestamp column for faster lookup
+CREATE INDEX idx_timestamp ON attendance_record(timestamp);
