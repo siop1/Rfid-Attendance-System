@@ -12,8 +12,10 @@
 MFRC522 rfid(SS_PIN, RST_PIN);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-String currentSSID = "";
-String currentPassword = "";
+// Hardcoded Wi-Fi credentials
+const char* currentSSID = "your_wifi_ssid";  // Replace with your Wi-Fi SSID
+const char* currentPassword = "your_wifi_password";  // Replace with your Wi-Fi password
+
 const char* serverHost = "192.168.34.51";  // Replace with your server's IP
 const int serverPort = 80;
 
@@ -26,7 +28,7 @@ void setup() {
 
   lcd.setCursor(0, 0);
   lcd.print("Connecting to WiFi...");
-  fetchWiFiCredentials();
+  connectToWiFi();
 }
 
 void loop() {
@@ -51,32 +53,9 @@ String getCardUID(byte* uidByte, byte size) {
   return uid;
 }
 
-void fetchWiFiCredentials() {
-  HTTPClient http;
-  String url = String("http://") + serverHost + "/get_wifi_credentials.php";
-  http.begin(url);
-  int httpCode = http.GET();
-
-  if (httpCode == 200) {
-    String payload = http.getString();
-    DynamicJsonDocument doc(256);
-    deserializeJson(doc, payload);
-    currentSSID = doc["ssid"].as<String>();
-    currentPassword = doc["password"].as<String>();
-    connectToWiFi();
-  } else {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Error fetching WiFi");
-    delay(2000);
-    while (true) { delay(1000); }
-  }
-  http.end();
-}
-
 void connectToWiFi() {
   if (currentSSID != "" && currentPassword != "") {
-    WiFi.begin(currentSSID.c_str(), currentPassword.c_str());
+    WiFi.begin(currentSSID, currentPassword);
     int attempt = 0;
     while (WiFi.status() != WL_CONNECTED && attempt < 10) {
       delay(1000);
@@ -103,25 +82,30 @@ void checkUser(String uid) {
   http.begin(url);
   int httpCode = http.GET();
   String payload = http.getString();
-  
+
   if (httpCode == 200) {
     DynamicJsonDocument doc(256);
     deserializeJson(doc, payload);
     String status = doc["status"].as<String>();
 
     if (status == "not_found") {
-      // Unknown card, show UID and message on LCD
+      // Display "Unknown Card" and the UID on LCD
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("Unknown Card:");
+      lcd.print("Unknown Card");
       lcd.setCursor(0, 1);
-      lcd.print(uid); // Display the UID on the LCD
-      Serial.println("Unknown Card: " + uid);  // Print UID to Serial Monitor for debugging
+      lcd.print("UID: " + uid);  // Display UID on the second line
+      Serial.println("Unknown Card: " + uid);  // Print UID to Serial Monitor for logging
       delay(5000);  // Display for 5 seconds, adjust as needed
     } else {
       // User exists, proceed to attendance tracking
       sendAttendanceData(uid);
     }
+  } else {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Server Error");
+    delay(1000);
   }
   http.end();
 }
