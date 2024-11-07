@@ -10,7 +10,6 @@ CREATE TABLE registered_user (
     id INT PRIMARY KEY AUTO_INCREMENT,
     uid VARCHAR(50) UNIQUE,
     name VARCHAR(50),
-    email VARCHAR(100)
 );
 
 -- Table for attendance records with unique constraint per user per day
