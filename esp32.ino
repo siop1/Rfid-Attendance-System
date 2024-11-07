@@ -3,6 +3,8 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 #define SS_PIN 27
 #define RST_PIN 5
@@ -10,171 +12,148 @@
 MFRC522 rfid(SS_PIN, RST_PIN);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-const char* ssid = "Noname";
-const char* password = "11111111";
-const char* serverHost = "192.168.34.51";
+// Hardcoded Wi-Fi credentials
+const char* currentSSID = "your_wifi_ssid";  // Replace with your Wi-Fi SSID
+const char* currentPassword = "your_wifi_password";  // Replace with your Wi-Fi password
+
+const char* serverHost = "192.168.34.51";  // Replace with your server's IP
 const int serverPort = 80;
-
-const byte predefinedUID1[] = {0x33, 0xBA, 0x9A, 0xF5};
-const byte predefinedUID2[] = {0xB3, 0x76, 0x5B, 0xDD};
-
-// Store last scan time for each UID
-unsigned long lastScanTimes[2] = {0, 0}; // Array to store last scan times
-const unsigned long SCAN_INTERVAL = 60000; // 1 minute interval in milliseconds
 
 void setup() {
   Serial.begin(115200);
   SPI.begin();
   lcd.init();
   lcd.backlight();
-  
-  connectToWiFi();
-  
-  lcd.setCursor(2, 0); 
-  lcd.print("Attendance");
-  delay(1000);
-  lcd.setCursor(1, 1); 
-  lcd.print("System");
-  delay(2000);
-
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Please"); 
-  lcd.setCursor(0, 1);
-  lcd.print("Scan card");
-  delay(1000);
-
   rfid.PCD_Init();
-  Serial.println("Scan RFID card");
+
+  lcd.setCursor(0, 0);
+  lcd.print("Connecting to WiFi...");
+  connectToWiFi();
 }
 
 void loop() {
-  if (!rfid.PICC_IsNewCardPresent()) {
+  if (WiFi.status() != WL_CONNECTED) {
+    connectToWiFi();
+  }
+
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
     return;
   }
 
-  if (!rfid.PICC_ReadCardSerial()) {
-    return;
-  }
-
-  lcd.clear();
-  Serial.print("Card UID: ");
-  byte scannedUID[rfid.uid.size];
-
-  // Read UID
-  for (byte i = 0; i < rfid.uid.size; i++) {
-    scannedUID[i] = rfid.uid.uidByte[i];
-    Serial.print(rfid.uid.uidByte[i], HEX);
-    Serial.print(" ");
-  }
-  Serial.println();
-
-  // Check if UID matches predefined UIDs
-  bool matchUID1 = compareUIDs(scannedUID, predefinedUID1, rfid.uid.size);
-  bool matchUID2 = compareUIDs(scannedUID, predefinedUID2, rfid.uid.size);
-
-  unsigned long currentMillis = millis(); // Current time
-
-  if (matchUID1 || matchUID2) {        
-    // Determine which UID was scanned
-    int uidIndex = matchUID1 ? 0 : 1;
-
-    if (currentMillis - lastScanTimes[uidIndex] < SCAN_INTERVAL) {
-      // If scanned within 1 minute, show "Duplicate Card"
-      lcd.setCursor(0, 0);
-      lcd.print("Duplicate Card");
-      Serial.println("Duplicate scan detected.");
-    } else {
-      // Update last scan time
-      lastScanTimes[uidIndex] = currentMillis;
-
-      // Show welcome message and send data to the server
-      lcd.setCursor(0, 0);
-      lcd.print("Welcome TO");
-      lcd.setCursor(0, 1); 
-      lcd.print("Nawajyoti");
-      Serial.println("Present");
-
-      String uidString = convertUIDToString(scannedUID, rfid.uid.size);
-      sendDataToServer(uidString);
-    }
-  } else {
-    lcd.print("Access Denied");
-    Serial.println("Access Denied");
-  } 
-
+  String uid = getCardUID(rfid.uid.uidByte, rfid.uid.size);
+  checkUser(uid);
   delay(1000);
+}
 
-  lcd.clear();
-  lcd.setCursor(0, 0); 
-  lcd.print("Please");
-  lcd.setCursor(0, 1);
-  lcd.print("Scan card");
-  delay(1000);
-
-  rfid.PICC_HaltA();  
-  rfid.PCD_StopCrypto1();
+String getCardUID(byte* uidByte, byte size) {
+  String uid = "";
+  for (byte i = 0; i < size; i++) {
+    uid += String(uidByte[i], HEX);
+  }
+  return uid;
 }
 
 void connectToWiFi() {
-  Serial.print("Connecting to WiFi...");
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.print(".");
+  if (currentSSID != "" && currentPassword != "") {
+    WiFi.begin(currentSSID, currentPassword);
+    int attempt = 0;
+    while (WiFi.status() != WL_CONNECTED && attempt < 10) {
+      delay(1000);
+      attempt++;
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Wi-Fi failed!");
+      delay(2000);
+      while (true) { delay(1000); }
+    } else {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Wi-Fi connected");
+      delay(2000);
+    }
   }
-
-  Serial.println("\nConnected to WiFi");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
 }
 
-void sendDataToServer(String uid) {
-  WiFiClient client;
-  String url = "/new_attendance.php?uid=" + uid;
+void checkUser(String uid) {
+  HTTPClient http;
+  String url = String("http://") + serverHost + "/check_user.php?uid=" + uid;
+  http.begin(url);
+  int httpCode = http.GET();
+  String payload = http.getString();
 
-  Serial.print("Connecting to ");
-  Serial.print(serverHost);
-  Serial.print(":");
-  Serial.println(serverPort);
+  if (httpCode == 200) {
+    DynamicJsonDocument doc(256);
+    deserializeJson(doc, payload);
+    String status = doc["status"].as<String>();
 
-  if (client.connect(serverHost, serverPort)) {
-    Serial.println("Connected to server");
-
-    client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-                 "Host: " + serverHost + "\r\n" +
-                 "Connection: close\r\n\r\n");
-
-    while (client.connected() && !client.available()) {
-      delay(10);
-    }
-    
-    while (client.available()) {
-      String line = client.readStringUntil('\r');
-      Serial.print(line);
+    if (status == "not_found") {
+      // Display "Unknown Card" and the UID on LCD
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Unknown Card");
+      lcd.setCursor(0, 1);
+      lcd.print("UID: " + uid);  // Display UID on the second line
+      Serial.println("Unknown Card: " + uid);  // Print UID to Serial Monitor for logging
+      delay(5000);  // Display for 5 seconds, adjust as needed
+    } else {
+      // User exists, proceed to attendance tracking
+      sendAttendanceData(uid);
     }
   } else {
-    Serial.println("Failed to connect to server");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Server Error");
+    delay(1000);
   }
-
-  client.stop();
+  http.end();
 }
 
-bool compareUIDs(byte* scannedUID, const byte* predefinedUID, byte size) {
-  for (byte i = 0; i < size; i++) {
-    if (scannedUID[i] != predefinedUID[i]) {
-      return false;
+void sendAttendanceData(String uid) {
+  HTTPClient http;
+  
+  // First, check if the user has already attended today
+  String checkAttendanceUrl = String("http://") + serverHost + "/check_attendance.php?uid=" + uid;
+  http.begin(checkAttendanceUrl);
+  int httpCode = http.GET();
+  String payload = http.getString();
+  http.end();
+
+  if (httpCode == 200) {
+    DynamicJsonDocument doc(256);
+    deserializeJson(doc, payload);
+    String status = doc["status"].as<String>();
+
+    if (status == "already_attended") {
+      // User has already attended today
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Already Attended");
+      delay(1000);
+    } else {
+      // User hasn't attended, proceed to record attendance
+      String attendanceUrl = String("http://") + serverHost + "/new_attendance.php?uid=" + uid;
+      http.begin(attendanceUrl);
+      httpCode = http.GET();
+      
+      if (httpCode == 200) {
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Attendance Sent");
+        delay(1000);
+      } else {
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Attendance Failed");
+        delay(1000);
+      }
+      http.end();
     }
+  } else {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Server Error");
+    delay(1000);
   }
-  return true;
-}
-
-String convertUIDToString(byte* uid, byte size) {
-  String uidString = "";
-  for (byte i = 0; i < size; i++) {
-    uidString += String(uid[i], HEX);
-    if (i < size - 1) uidString += ":";
-  }
-  return uidString;
 }

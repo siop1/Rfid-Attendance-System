@@ -17,21 +17,18 @@ if ($conn->connect_error) {
     exit();
 }
 
-// Get the user_id from the registered_user table
-$sql = "SELECT id FROM registered_user WHERE uid = ?";
+// Check if the user with the provided uid exists
+$sql = "SELECT * FROM registered_user WHERE uid = ?";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("s", $uid);
+$stmt->bind_param("s", $uid);  // Use "s" because uid is a string (HEX value)
 $stmt->execute();
 $result = $stmt->get_result();
 
 if ($result->num_rows > 0) {
-    $user = $result->fetch_assoc();
-    $user_id = $user['id'];
-
-    // Check if there's an attendance record for this user today
-    $sql = "SELECT * FROM attendance_record WHERE user_id = ? AND DATE(timestamp) = CURDATE()";
+    // Check if there's an attendance record for this uid today
+    $sql = "SELECT * FROM attendance_record WHERE uid = ? AND DATE(timestamp) = CURDATE()";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $user_id);
+    $stmt->bind_param("s", $uid);  // Use "s" because uid is a string (HEX value)
     $stmt->execute();
     $result = $stmt->get_result();
 
