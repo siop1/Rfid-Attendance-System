@@ -4,7 +4,14 @@ CREATE TABLE registered_user (
     id INT PRIMARY KEY AUTO_INCREMENT,
     uid VARCHAR(50) UNIQUE,
     name VARCHAR(50),
+    entry_time TIME NOT NULL,
+    exit_time TIME NOT NULL,
+    faculty ENUM('BICTE') NOT NULL,
+    semester INT NOT NULL CHECK (semester BETWEEN 1 AND 8)
 );
+
+
+
 -- Table for attendance records
 CREATE TABLE attendance_record (
     id INT PRIMARY KEY AUTO_INCREMENT,
